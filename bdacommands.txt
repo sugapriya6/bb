@@ -1,0 +1,398 @@
+@@@@@@@@exp no:2 -->multimode environment and explore data in data lake
+
+docker-compose up -d
+docker exec namenode hdfs dfsadmin -report
+docker exec -it hive-server2 beeline -u jdbc:hive2://localhost:10000
+
+
+ CREATE TABLE filesystem (
+  id INT,
+  name VARCHAR(50)
+ );
+
+INSERT INTO filesystem VALUES
+(1, "file1"),
+(2, 'file2'),
+(3, "file3");
+
+select * from filesystem;
+desc filesystem;
+
+@@@@@@@@exp no:3 -->create table and load data in hive table
+
+docker cp books_data.csv namenode:/tmp/
+docker exec -it namenode bash
+ hdfs dfs -mkdir -p /user/hive/warehouse/books_data
+ hdfs dfs -chmod -R 777 /user/hive/warehouse/books_data
+ hdfs dfs -put /tmp/books_data.csv     /user/hive/warehouse/books_data/
+docker exec -it hive-server2 beeline -u jdbc:hive2://localhost:10000
+
+
+CREATE EXTERNAL TABLE books_data (
+  Title STRING,
+  description STRING,
+  authors STRING,
+  image STRING,
+  previewLink STRING,
+  pubisher STRING,
+  publishedDate DATE,
+  infoLink STRING,
+  categories STRING,
+  ratingsCount INT
+)
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY ','
+STORED AS TEXTFILE
+LOCATION 'hdfs://namenode:9000/user/hive/warehouse/books_data';
+
+select * from books_data limit 5;
+
+@@@@@@@@@exp n0:4 -->Use shell script to automate HQL Queries
+
+Automate hql quesries using Shell script :
+
+
+Step 1 :  Creating a Sample HQL Query File: hadoop-lab-v5/hql/my_queries.hql 
+
+USE default;
+
+CREATE TABLE IF NOT EXISTS emp (
+  name STRING,
+  salary INT
+);
+
+INSERT INTO emp VALUES
+  ('Alice', 5000),
+  ('Bob', 7000),
+  ('Charlie', 6000);
+
+SELECT name, salary FROM emp WHERE salary > 5500;
+
+
+Step 2: hadoop-lab-v5/hql/run_queries.sh:
+
+
+#!/bin/bash
+
+# File path to the HQL script
+HQL_FILE="/opt/hql/my_queries.hql"
+
+# Output log files
+LOG_FILE="hive_output.log"
+ERROR_LOG="hive_error.log"
+
+# Run Hive CLI and capture output
+echo "🟡 Running Hive script: $HQL_FILE"
+hive -f "$HQL_FILE" > "$LOG_FILE" 2> "$ERROR_LOG"
+
+# Check for success or failure
+if [ $? -eq 0 ]; then
+  echo "✅ Hive queries executed successfully."
+else
+  echo "❌ Hive query execution failed. See $ERROR_LOG."
+fi
+
+
+
+Step 3: open hive-server bash :
+
+sudo docker exec -u 0 -it hive-server2 bash  
+
+
+Step 4: Create hql folder :
+
+ mkdir -p /opt/hql
+ 
+ exit
+
+
+Step 5:Copy the .sh and .hql into the container:
+
+sudo docker cp run_queries.sh hive-server2:/opt/
+sudo docker cp hql/my_queries.hql hive-server2:/opt/hql/
+
+
+Step 6:change permissions :
+
+chmod +x run_queries.sh
+
+
+Step 7:Enter into bash :
+
+
+sudo docker exec -it hive-server2 beeline -u jdbc:hive2://localhost:10000 -f /opt/hql/my_queries.hql
+
+
+@@@@@@@@exp no:5---> create data partitions and repair partitioning errors
+
+[03-06-2025 00:03] Suga: CREATE EXTERNAL TABLE books_data_partitioned (
+  title STRING,
+  description STRING,
+  authors STRING,
+  image STRING,
+  previewLink STRING,
+  publisher STRING,
+  publishedDate DATE,
+  infoLink STRING,
+  categories STRING,
+  ratingsCount INT
+)
+PARTITIONED BY (year STRING, month STRING)
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY ','
+STORED AS TEXTFILE
+LOCATION 'hdfs://namenode:9000/user/hive/warehouse/books_data/';
+
+ INSERT INTO TABLE books_data_partitioned
+PARTITION (year='2021', month='March')
+SELECT title, description, authors, image, previewLink, publisher, publishedDate, infoLink, categories, ratingsCount
+FROM books_data;
+
+ SHOW PARTITIONS books_data_partitioned;
+
+ docker exec -it namenode bash
+
+hdfs dfs -ls /user/hive/warehouse/books_data/
+
+ MSCK REPAIR TABLE books_data_partitioned;
+
+ALTER TABLE books_data_partitioned DROP PARTITION (year='2021', month='March');
+
+ALTER TABLE books_data_partitioned ADD PARTITION (year='2021', month='March')
+LOCATION 'hdfs://namenode:9000/user/hive/warehouse/books_data_partitioned/year=2021/month=March/';
+
+ ANALYZE TABLE books_data_partitioned COMPUTE STATISTICS;
+
+ANALYZE TABLE books_data_partitioned
+PARTITION (year='2021', month='March') COMPUTE STATISTICS;
+
+ hdfs dfs -ls /user/hive/warehouse/books_data/
+
+ docker logs hive-server2
+
+@@@@@@@@@@exp no:6--->views,joins ,aggregation in hive
+
+CREATE VIEW high_rated_books AS
+SELECT title, authors, ratingscount
+FROM books_data
+WHERE ratingscount > 1000;
+
+SELECT title, ratingscount
+FROM books_data;
+
+DROP VIEW high_rated_books;
+
+
+
+CREATE TABLE publisher_data (
+    publisher STRING,
+    publisher_location STRING
+)
+ROW FORMAT DELIMITED 
+FIELDS TERMINATED BY ','
+STORED AS TEXTFILE;
+
+
+SELECT b.title, b.authors, b.publisher, p.publisher_location
+FROM books_data b
+JOIN publisher_data p
+ON b.publisher = p.publisher;
+
+SELECT authors, COUNT(*) AS total_books
+FROM books_data
+GROUP BY authors;
+
+SELECT title, MAX(ratingscount) AS max_ratings
+FROM books_data
+GROUP BY title;
+
+SELECT YEAR(publisheddate) AS year, AVG(ratingscount) AS avg_ratings
+FROM books_data
+GROUP BY YEAR(publisheddate);
+
+exp no:8-->spark
+
+docker exec -it spark-master bash
+ls /opt/
+ls /spark/
+ls /spark/bin/pyspark
+ls /spark/bin
+ls /spark/python
+/spark/bin/pyspark
+
+data=[1,2,3,4,5,6,7,8,9,10]
+rdd=sc parallelize(data)
+print(rdd.collect())
+
+docker exec -it namenode hdfs dfs -ls/user/Hadoop/
+ docker exec -it namenode hdfs dfs -mkdir -p /user/Hadoop/
+docker cp sample.txt namenode:/sample.txt
+docker exec -it namenode hdfs dfs -put /sample.txt/user/Hadoop/
+docker exec -it namenode.hdfs dfs -ls /user/Hadoop/
+rdd_file=sc.textFile("hdfs://namenode:9000/user/hadoop/sample.txt")
+print(rdd_file.take(5))
+
+
+>>> rdd_squared=rdd.map(lambda x:x*x)
+>>> print(rdd_squared.collect())
+[1, 4, 9, 16, 25, 36]
+
+>>> rdd_even=rdd.filter(lambda x:x%2==0)
+>>> print(rdd_even.collect())
+[2, 4, 6]
+
+>>> rdd_words=rdd_file.flatMap (lambda line:line.split(" "))
+print(rdd_words.collect())
+
+
+>>> print(rdd.count())
+6
+>>> print(rdd.first())
+1
+>>> sum_rdd=rdd.reduce(lambda a,b:a+b)
+>>> print(sum_rdd)
+21
+
+@@@@@@@@exp no:9--->create dataframes from diff souces and execute sql queries on it
+>>> from pyspark.sql import SparkSession
+>>> spark=SparkSession.builder.appName("DataFrame Example").getOrCreate()
+>>> data =[(1,"alice" ,25),
+... (2,"bob", 35)]
+>>> columns=["id","name","age"]
+>>> df=spark.createDataFrame(data,schema=columns)
+>>> df.show()
+
+@@@@@@@@@@exp no:10-->setup simple streaming applicaton using spark structured streaming and windowing functions
+
+
+  from pyspark.sql import SparkSession
+from pyspark.sql.functions import explode, split, window, current_timestamp
+
+spark = SparkSession.builder \
+    .appName("StructuredStreamingWindowExample") \
+    .getOrCreate()
+
+spark.sparkContext.setLogLevel("WARN")
+
+lines = spark.readStream \
+    .format("socket") \
+    .option("host", "localhost") \
+    .option("port", 9999) \
+    .load()
+
+words = lines.withColumn("timestamp", current_timestamp()) \
+    .select(explode(split(lines.value, " ")).alias("word"), "timestamp")
+
+windowedCounts = words.groupBy(
+    window(words.timestamp, "10 seconds"),
+    words.word
+).count()
+
+query = windowedCounts.writeStream \
+    .outputMode("complete") \
+    .format("console") \
+    .option("truncate", False) \
+    .start()
+
+query.awaitTermination()
+
+@@@@@@@@@@@@exp no:11-->integrate spark with Hadoop and peform operations on hdfs
+
+from pyspark.sql import SparkSession
+
+spark = SparkSession.builder.appName("Spark HDFS Integration").getOrCreate()
+
+spark.sparkContext.setLogLevel("ERROR")
+
+text_file = spark.read.text("hdfs://localhost:9000/input/localfile.txt")
+
+word_counts = text_file.rdd.flatMap(lambda line: line[0].split()) \
+    .map(lambda word: (word, 1)) \
+    .reduceByKey(lambda a, b: a + b)
+
+word_counts_df = word_counts.toDF(["word", "count"])
+
+word_counts_df.write.mode("overwrite") \
+    .csv("hdfs://localhost:9000/output/wordcount-result")
+
+spark.stop()
+
+
+@@@@@@@@@@@@@@exp no:12-->explore varous spark options and their effects on job execution
+
+
+from pyspark.sql import SparkSession
+
+spark = SparkSession.builder \
+    .appName("SparkOptions Exploration") \
+    .master("local[*]") \
+    .config("spark.executor.memory", "2g") \
+    .config("spark.executor.cores", "2") \
+    .config("spark.default.parallelism", "8") \
+    .config("spark.sql.shuffle.partitions", "8") \
+    .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
+    .getOrCreate()
+
+spark.sparkContext.setLogLevel("ERROR")
+
+text_file = spark.read.text("hdfs://localhost:9000/input/samplefile.txt")
+
+words = text_file.selectExpr("explode(split(value, ' ')) as word")
+
+word_counts = words.selectExpr("explode(split(value, ' ')) as word")
+
+word_counts.write.mode("overwrite").csv("hdfs://localhost:9000/output/wordcount-options-result")
+
+spark.stop()
+
+
+@@@@@@@@@@@@exp no:13---> read input various sourcesz and write output to vatous targets
+from pyspark.sql import SparkSession
+
+spark = SparkSession.builder \
+    .appName("Spark multiple sources target") \
+    .config("spark.sql.shuffle.partitions", "4") \
+    .getOrCreate()
+
+spark.sparkContext.setLogLevel("ERROR")
+
+hdfs_data = spark.read.text("hdfs://localhost:9000/input/samplefile.txt")
+
+json_data = spark.read.json("hdfs://localhost:9000/input/sampledata.json")
+
+jdbc_url = "jdbc:mysql://localhost:3306/mydatabase"
+
+jdbc_properties = {
+    "user": "root",
+    "password": "password",
+    "driver": "com.mysql.cj.jdbc.Driver"
+}
+
+jdbc_data = spark.read.jdbc(url=jdbc_url, table="my_table", properties=jdbc_properties)
+
+hdfs_words = hdfs_data.selectExpr("explode(split(value, ' ')) as word")
+
+word_count = hdfs_words.groupBy("word").count()
+
+json_aggregated = json_data.groupBy("category").avg("value")
+
+jdbc_selected = jdbc_data.select("id", "name", "value") \
+    .filter("value > 100")
+
+word_count.write.mode("overwrite")
+
+json_aggregated.write.json("hdfs://localhost:9000/output/json_aggregated_result")
+
+jdbc_selected.write.jdbc(url=jdbc_url, table="aggregated_results", mode="overwrite", properties=jdbc_properties)
+
+spark.stop()
+
+
+
+
+
+
+
+
+
+
